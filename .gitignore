@@ -3,6 +3,10 @@ bin-debug/
 bin-release/
 [Oo]bj/
 [Bb]in/
+
+**/.DS_Store
+
+#LAPACK Lib
 lapack-3.9.0/
 
 # Other files and folders
@@ -14,8 +18,15 @@ lapack-3.9.0/
 *.ipa
 *.apk
 *.o
+*.exe
+
+# Jupyter Notebook
+*.ipynb
+.pynb_checkpoints/
+
+#Fortran Modules
 *.mod
-*.DS_Store
+
 
 # Data files
 *.dat
