@@ -13,7 +13,6 @@ module ModuleRK
 
     real(kind(1d0)), parameter :: MIN_STEP_SIZE = 1d-8 ! Is arbitary
 
-    !.. Create A general Runge-Kutta Class 
     type, public :: ClassRK
         private
         real(kind(1d0)), dimension(:)  , allocatable :: weights, nodes, Ks
@@ -66,7 +65,7 @@ module ModuleRK
                 if(verbose) write(*,*) "Runge-Kutta Object Succesfully Initialized..."
              endif
             
-            if(allocated(self%nodes))     deallocate(nodes)
+            if(allocated(self%nodes))    deallocate(nodes)
             if(allocated(self%weights))  deallocate(weights)
             if(allocated(self%RkMatrix)) deallocate(RkMatrix)
 
@@ -78,7 +77,7 @@ module ModuleRK
             self%order     = order
         endif
     end subroutine ClassRK_Init
-
+!--------------------------------------------   START OF SUBROUTINES THAT NEED CHECKING    -------------------------------------------------------------   
     ! Check if Works
     subroutine ClassRK_GetPars(self, order, weights, nodes, RkMatrix, step_size)
         class(ClassRK) ,            intent(in)     :: self
@@ -116,7 +115,6 @@ module ModuleRK
         if(allocated(self%weights)) allocate(weights, source=self%weights)
     end subroutine ClassRK_GetWeights
     
-    ! Check if Works
     subroutine ClassRK_GetRkMatrix(self, RkMatrix)
         class(ClassRK) ,              intent(in)  :: self
         real(kind(1d0)), allocatable, intent(out) :: RkMatrix(:,:)
@@ -126,14 +124,12 @@ module ModuleRK
         endif
     end subroutine ClassRK_GetRkMatrix
 
-    ! Check if Works    
     subroutine ClassRK_GetStepSize(self, step_size)
         class(ClassRK) , intent(in)  :: self
         real(kind(1d0)), intent(out) :: step_size
         step_size = self%step_size
     end subroutine ClassRK_GetStepSize
 
-    ! Check if Works
     subroutine ClassRK_GetKs(self, Ks)
         class(ClassRK) ,              intent(in)  :: self
         real(kind(1d0)), allocatable, intent(out) :: ks(:,:)
@@ -143,7 +139,6 @@ module ModuleRK
         endif
     end subroutine ClassRK_GetKs
 
-    ! Test the logic
     subroutine ClassRK_SetNodes(self, nodes, verbose)
         class(ClassRK) ,            intent(inout) :: self
         real(kind(1d0)),            intent(in)    :: nodes(:)
@@ -160,7 +155,6 @@ module ModuleRK
         endif
     end subroutine ClassRK_SetNodes
 
-    ! Test if Works
     subroutine ClassRK_SetWeights(self, weights)
         class(ClassRK) ,            intent(inout) :: self
         real(kind(1d0)),            intent(in)    :: weights(:)
@@ -177,7 +171,6 @@ module ModuleRK
         endif
     end subroutine ClassRK_SetWeights
 
-    !.. Check if this logic works
     subroutine ClassRK_SetRkMatrix(self, RkMatrix)
         class(ClassRK) ,            intent(inout) :: self
         real(kind(1d0)),            intent(in)    :: RkMatrix(:,:)
@@ -194,7 +187,6 @@ module ModuleRK
         endif
     end subroutine ClassRK_SetRkMatrix
 
-    ! Test if works
     subroutine ClassRK_SetStepSize(self, step_size, verbose)
         class(ClassRK) ,            intent(inout) :: self
         real(kind(1d0)),            intent(in)    :: step_size
@@ -210,7 +202,7 @@ module ModuleRK
         endif
     end subroutine ClassRK_SetStepSize
 
-    !.. Checks to make sure that the passed weightsvec meets the RK requirements of
+    !.. Checks if weights meet the following req:
     !.. \sum_{i} \weights_i = 1
     logical function Checkweights(weights, invLogic) result(res) !Works
         real(kind(1d0)),          intent(in) :: weights(:)
@@ -226,7 +218,7 @@ module ModuleRK
         endif
         if(present(invLogic)) res = XOR(res, invLogic)
     end function Checkweights
-
+! ----------------------------------------  END ROUTINES THAT NEED CHECKING   -------------------------------------------------------------------------------
     !.. Check if \nodes meets the condition of:
     !... \nodes_s = \sum_{j} \RkMatrix_{sj} 
     logical function Checknodes(nodes, RkMatrix, invLogic) result(res) !Works
