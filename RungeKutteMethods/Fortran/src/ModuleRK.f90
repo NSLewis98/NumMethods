@@ -35,7 +35,8 @@ module ModuleRK
         procedure, public :: SetWeights  => ClassRK_SetWeights
         procedure, public :: SetRkMatrix => ClassRK_SetRkMatrix
         procedure, public :: SetStepSize => ClassRK_SetStepSize
-        end type ClassRk
+    end type ClassRk
+    
     contains
     ! Works
     subroutine ClassRK_Init(self, order, weights, nodes, RkMatrix, step_size, verbose)
