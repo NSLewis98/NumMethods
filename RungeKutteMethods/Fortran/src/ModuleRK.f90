@@ -1,8 +1,6 @@
 module ModuleRK
     implicit none
     private
-    !TODO: GO through all added routines to ensure they work as intended
-    !      Start building the solver. Also may need to modify Ks since it might be an array of d-dim vecs
     abstract interface
         real(kind(1d0)) function func(x, y)
             real(kind(1d0)), optional, intent(in) :: x
@@ -22,6 +20,8 @@ module ModuleRK
         
         contains
         procedure, public :: Init        => ClassRK_Init
+        procedure, public :: InitRK4     => ClassRK_InitRK4
+        
         procedure, public :: GetKs       => ClassRK_GetKs
         procedure, public :: GetParams   => ClassRK_GetParams
         procedure, public :: GetNodes    => ClassRK_GetNodes
@@ -34,10 +34,39 @@ module ModuleRK
         procedure, public :: SetWeights  => ClassRK_SetWeights
         procedure, public :: SetRkMatrix => ClassRK_SetRkMatrix
         procedure, public :: SetStepSize => ClassRK_SetStepSize
+
+        procedure, public :: PrintParams => ClassRK_PrintParams
     end type ClassRk
     
     contains
-    ! Works
+
+    subroutine ClassRK_InitRK4(self)
+        class(ClassRK) ,            intent(inout) :: self
+        integer, parameter :: ORDER = 4
+
+        self%order = ORDER
+        if(allocated(self%nodes))    deallocate(self%nodes)
+        if(allocated(self%weights))  deallocate(self%weights)
+        if(allocated(self%RkMatrix)) deallocate(self%RkMatrix)
+
+        allocate(self%nodes(ORDER))
+        self%nodes(1) = 1d0/6d0
+        self%nodes(2:3)  = 1d0/3d0
+        self%nodes(4) = 1d0/6d0
+
+        allocate(self%weights(ORDER))
+        self%weights(1) = 0d0
+        self%weights(2:3)  = 0.5d0
+        self%weights(4) = 1d0
+
+        allocate(self%RkMatrix(ORDER, ORDER))
+        self%RkMatrix = 0d0
+        self%RkMatrix(1, 2) = 0.5d0
+        self%RkMatrix(2, 3) = 0.5d0
+        self%RkMatrix(3, 4) = 1d0
+
+    end subroutine ClassRK_InitRK4
+
     subroutine ClassRK_Init(self, order, weights, nodes, RkMatrix, step_size, verbose)
         class(ClassRK) ,            intent(inout) :: self
         real(kind(1d0)),            intent(in)    :: weights(:), nodes(:), RkMatrix(:,:)
@@ -203,6 +232,15 @@ module ModuleRK
         endif
     end subroutine ClassRK_SetStepSize
 
+    subroutine ClassRK_PrintParams(self)
+        class(ClassRK) , intent(inout) :: self
+        write(*,*) "Order: "    , self%order
+        write(*,*) "Weights: "  , self%weights
+        write(*,*) "Nodes: "    , self%nodes
+        write(*,*) "RK Matrix: ", self%RkMatrix
+        write(*,*) "Ks: "       , self%Ks
+    end subroutine ClassRK_PrintParams
+
     !.. Checks if weights meet the following req:
     !.. \sum_{i} \weights_i = 1
     logical function Checkweights(weights, invLogic) result(res)
@@ -239,3 +277,22 @@ module ModuleRK
     end function Checknodes
     
 end module ModuleRK
+
+program main
+    use ModuleRk
+    implicit none
+    integer, parameter :: ORDER = 4
+    
+    type(ClassRK)   :: RkObj
+    real(kind(1d0)) :: Lambda(ORDER,ORDER)
+    integer         :: col
+
+    call RkObj%InitRK4()
+    call RkObj%PrintParams()
+    call RkObj%GetRkMatrix(Lambda)
+
+    do col = 1, ORDER
+        write(*,*) Lambda(:, col)
+    enddo
+
+end program main
