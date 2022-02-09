@@ -239,35 +239,3 @@ module ModuleRK
     end function Checknodes
     
 end module ModuleRK
-
-program main
-    use ModuleRK
-    implicit none
-
-    type(ClassRk) :: RungeObj
-    integer, parameter :: N = 10
-    logical, parameter :: VERBOSE = .TRUE.
-
-    real(kind(1d0)) :: RkMatrix(N,N), weights(N), nodes(N), step_size
-    integer :: order
-
-    
-    weights = 1d0 
-    weights = weights / SUM(weights)
-    nodes   = 1d0
-    RkMatrix = 1d0 / N
-    step_size = 1d0
-
-    !.. subroutine ClassRK_Init(self, order, weights, nodes, RkMatrix, step_size, verbose)sss
-    call RungeObj%Init(order=N, weights=weights, nodes=nodes, RkMatrix = RkMatrix,&
-                        step_size=step_size, verbose=VERBOSE)
-
-    weights = 0d0
-    nodes = 0d0ss
-    RkMatrix = 0d0
-
-    call RungeObj%GetRkMatrix(RkMatrix)
-    print*, RkMatrix
-
-    contains
-end program main
