@@ -9,7 +9,7 @@ module ModuleRK
     end interface 
     public func
 
-    real(kind(1d0)), parameter :: MIN_STEP_SIZE = 1d-8 ! Is arbitary
+    real(kind(1d0)), parameter :: MIN_STEP_SIZE = 1d-6 ! Is arbitary
 
     type, public :: ClassRK
         private
