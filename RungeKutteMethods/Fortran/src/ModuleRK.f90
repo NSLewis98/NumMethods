@@ -1,22 +1,25 @@
 module ModuleRK
     implicit none
     private
-    abstract interface
-        real(kind(1d0)) function func(x, y)
-            real(kind(1d0)), optional, intent(in) :: x
-            real(kind(1d0)), optional, intent(in) :: y(*)
-        end function func
+    interface
+        subroutine f(t,y,sol)
+            real(kind(1d0)), optional, intent(in)  :: t
+            real(kind(1d0)), optional, intent(in)  :: y(*)
+            real(kind(1d0)),           intent(out) :: sol(*)         
+        end subroutine f
     end interface 
-    public func
+    public f
 
     real(kind(1d0)), parameter :: MIN_STEP_SIZE = 1d-6 ! Is arbitary
 
     type, public :: ClassRK
         private
         real(kind(1d0)), dimension(:)  , allocatable :: weights, nodes 
-        real(kind(1d0)), dimension(:,:), allocatable :: RkMatrix, Ks 
+        real(kind(1d0)), dimension(:,:), allocatable :: RkMatrix, Ks, sol 
         real(kind(1d0))                              :: step_size
-        integer                                      :: order
+        integer                                      :: order, funcDim
+
+        logical :: INITIALIZED = .FALSE.
         
         contains
         procedure, public :: Init        => ClassRK_Init
@@ -36,6 +39,8 @@ module ModuleRK
         procedure, public :: SetStepSize => ClassRK_SetStepSize
 
         procedure, public :: PrintParams => ClassRK_PrintParams
+        procedure, public :: ClassRK_SolveForKs
+
     end type ClassRk
     
     contains
@@ -64,6 +69,8 @@ module ModuleRK
         self%RkMatrix(1, 2) = 0.5d0
         self%RkMatrix(2, 3) = 0.5d0
         self%RkMatrix(3, 4) = 1d0
+
+        self%INITIALIZED = .TRUE.
 
     end subroutine ClassRK_InitRK4
 
@@ -104,6 +111,7 @@ module ModuleRK
 
             self%step_size = step_size
             self%order     = order
+            self%INITIALIZED = .TRUE.
         endif
     end subroutine ClassRK_Init
 
@@ -241,6 +249,36 @@ module ModuleRK
         write(*,*) "Ks: "       , self%Ks
     end subroutine ClassRK_PrintParams
 
+
+    !.. Find all K_s with given args
+    !.. Where K_s = f(t + node_s *h, y + h*\sum^{-1}_{j =1} RKmatrix_{sj} k_j
+    subroutine ClassRK_SolveForKs(self, routPtr, t0, y0, ks)
+        class(ClassRK) , intent(inout) :: self
+        procedure(f)   , pointer       :: routPtr
+        real(kind(1d0)), intent(in)    :: t0, y0(:)
+        real(kind(1d0)), intent(out)   :: ks(:,:)
+
+        real(kind(1d0)), dimension(size(y0,1)) :: sol
+        integer :: i
+
+        if(.not.self%INITIALIZED) then 
+            write(*,*) "NOT INTIALZIZED"
+            return
+        endif
+        ks = 0d0
+        call routPtr(t0, y0, ks(1, :))
+
+        print*, ks
+
+        ! do i = 2, self%order
+        !     ks(i) = 
+        ! enddo
+
+        print*, self%order
+
+    end subroutine ClassRK_SolveForKs
+
+
     !.. Checks if weights meet the following req:
     !.. \sum_{i} \weights_i = 1
     logical function Checkweights(weights, invLogic) result(res)
@@ -284,15 +322,24 @@ program main
     integer, parameter :: ORDER = 4
     
     type(ClassRK)   :: RkObj
-    real(kind(1d0)) :: Lambda(ORDER,ORDER)
+    real(kind(1d0)) :: Lambda(ORDER,ORDER), sol(1), y0(1), ks(ORDER, 1)
     integer         :: col
 
-    call RkObj%InitRK4()
-    call RkObj%PrintParams()
-    call RkObj%GetRkMatrix(Lambda)
+    procedure(f), pointer :: fptr
 
-    do col = 1, ORDER
-        write(*,*) Lambda(:, col)
-    enddo
+    fptr => func
+    y0 = 1d0
+
+    call RkObj%InitRK4()
+    call RkObj%ClassRK_SolveForKs(fptr, 1d0, y0, ks)
+    contains
+
+    subroutine func(t, y, sol)
+        real(kind(1d0)), optional, intent(in)  :: t
+        real(kind(1d0)), optional, intent(in)  :: y(*)
+        real(kind(1d0)),           intent(out) :: sol(*)
+        sol(1) = 1d0
+
+    end subroutine func
 
 end program main
