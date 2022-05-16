@@ -1,0 +1,361 @@
+subroutine KRYLOV(AMAT,X,fact,RES,MINIT,MAXIT,NITER,MINNOR,ERRRES,Q,INFO)
+  !
+  !
+  !.. External definition for Petsc
+  !..
+#include <petsc/finclude/petscsys.h>
+#include <petsc/finclude/petscvec.h>
+#include <petsc/finclude/petscmat.h>
+#include <petsc/finclude/petscviewer.h>
+  use petscsys
+  use petscvec
+  use petscmat
+  !
+  implicit none
+  !   
+  Mat            , intent(in)    :: AMAT
+  Vec            , intent(in)    :: X
+  PetscScalar    , intent(in)    :: fact
+  Vec            , intent(inout) :: RES
+  integer        , intent(in)    :: MINIT,MAXIT
+  real(kind(1d0)), intent(in)    :: MINNOR,ERRRES
+  integer        , intent(out)   :: NITER,INFO
+  Vec            , pointer :: Q(:) 
+  ! 
+  ! Purpose
+  ! =======
+  ! 
+  ! KRYLOV computes the matrix-vector product 
+  !   
+  !        RES  =  Exp[-i * AMAT * fact] * X
+  !
+  ! with the Arnoldi algorithm. We should consider passing to
+  ! the Lanczos method, though.
+  !
+  ! Arguments
+  ! =========
+  ! 
+  ! AMAT    Input matrix as argument of the exponential operator
+  !
+  ! X       Input vector to be multiplied by exp(-i*AMAT*fact)
+  !         
+  ! RES     Output vector that results from the operation
+  !         
+  !                        RES=Exp(-i*fact*A)X
+  !         
+  ! MINIT   (input) INTEGER 
+  !         The minimum number of Krylov iterations to be performed
+  !         unless the MINNOR limit is reached
+  !         
+  ! MAXIT   (input) INTEGER
+  !         The maximum number of Krylov iterations to be performed
+  !         If the convergence is not reached within MAXIT iterations,
+  !         that is if the L2 norm of the change in the result vector
+  !         RES between the last two iterations is larger than ERRRES
+  !         times the initial L2 norm of the X vector, INFO is set
+  !         to 1 on exit.
+  !
+  ! MAXIT   (input) INTEGER
+  !         Number of iterations actually performed
+  !
+  ! MINNOR  (input) REAL(KIND(1D0))
+  !         The minimum L2 vector norm to be tolerated for the
+  !         intermediate vectors in the Gram Schmidt orthogonalization
+  !         If MINNOR is trenspassed, the program assumes that
+  !         the Krylov space is already an invarian space for A
+  !         and it terminates the iteration process.
+  !         
+  ! ERRRES  (input) REAL(KIND(1D0))
+  !         If ERRRES > 0.d0 then convergence is reached when the 
+  !         L2 norm of the variation of RES between two consecutive 
+  !         iterations is smaller than ERRRES. If MAXIT iterations
+  !         are not sufficient to reach the required accuracy then
+  !         INFO is set to 1 on exit.
+  !         If ERRRES >= 0.d0 then convergence is not checked and
+  !         the program just diagonalizes the Krylov matrix in the
+  !         largest possible Krylov space (dim=min(N,MAXIT) if 
+  !         MINNOR is not reached).
+  !         
+  ! Q       Work array of Petsc vectors, dimension (MAXIT+2).
+  !         Must be initialized at the beginning
+  !
+  ! INFO    (input) INTEGER
+  !         Output flag. 
+  !         INFO =  0 :   Everything looks just fine
+  !         INFO =  1 :   Convergence was not reached
+  !         INFO = -n :   The n-th argument is suspect
+  !         
+  ! ==================================================================
+  !
+  !.. Parameters
+  !..
+  complex(kind(1d0)), parameter  :: Z0 = (0.d0,0.d0)
+  complex(kind(1d0)), parameter  :: Z1 = (1.d0,0.d0)
+  complex(kind(1d0)), parameter  :: Zi = (0.d0,1.d0)
+  !
+  logical           , parameter  :: VERBOUS=.FALSE.
+  !
+  !.. Local variables
+  !..
+  PetscScalar        :: zw1
+  PetscErrorCode     :: ierr
+  PetscReal          :: Initial_Norm,norm
+  PetscInt           :: i,j,N,rank
+  !
+  logical            :: CONVERGED_SPACE
+  logical            :: CONVERGED_RESULT
+  logical            :: CHECK_LIMIT
+
+
+  !.. Diagonalization variables
+  !
+  !   - these are allocated by all tasks -
+  !..
+  complex(kind(1d0)), allocatable :: T(:,:)   !(MAXIT,MAXIT)
+  complex(kind(1d0)), allocatable :: zvec2(:) !(MAXIT)
+  !
+  !   - these are used by root only -
+  !..
+  complex(kind(1d0)), allocatable :: Try(:,:) !(MAXIT,MAXIT)
+  complex(kind(1d0)), allocatable :: vlft(:,:)!(MAXIT,MAXIT)
+  complex(kind(1d0)), allocatable :: vrgt(:,:)!(MAXIT,MAXIT)
+  complex(kind(1d0)), allocatable :: E   (:)  !(MAXIT)
+  real   (kind(1d0)), allocatable :: DE  (:)  !(MAXIT)
+  complex(kind(1d0)), allocatable :: zvec1(:) !(MAXIT)
+  integer           , parameter   :: IMULT = 33
+  integer                         :: LWORK
+  complex(kind(1d0)), allocatable :: work(:)
+  real   (kind(1d0)), allocatable :: rwork(:)
+  integer                         :: ZGEEV_INFO
+
+
+
+  !    .. 
+  !    .. Executable Statements ..
+  !    
+  info=0
+
+
+  call MPI_Comm_rank(PETSC_COMM_WORLD,rank,ierr);CHKERRQ(ierr)
+
+
+  !.. Evaluates the initial norm.
+  !..
+  call VecNorm(x,NORM_2,Initial_Norm,ierr);CHKERRQ(ierr)
+  !
+  !.. If the input vector is identically zero, the
+  !   result is of course zero as well, and a warning 
+  !   is issued
+  !..
+  if(Initial_Norm==0.d0)then
+     !
+     call VecCopy(x,res,ierr);CHKERRQ(ierr)
+     info=-2
+     return
+     !
+  endif
+  call VecCopy(x,Q(MAXIT+2),ierr);CHKERRQ(ierr)
+
+
+  !.. Allocate the variables that 
+  !   are used in all processes
+  !..
+  allocate(T(MAXIT,MAXIT))
+  allocate(zvec2(MAXIT))
+  T=Z0
+  zvec2=Z0
+  !
+  !.. Allocate the variables that are used only by root
+  !..
+  if(rank==0)then
+     !
+     allocate(Try  (MAXIT,MAXIT))
+     allocate(vlft (MAXIT,MAXIT))
+     allocate(vrgt (MAXIT,MAXIT))
+     allocate(E    (MAXIT))
+     allocate(DE   (MAXIT))
+     allocate(zvec1(MAXIT))
+     zvec1=Z0
+     Try=Z0
+     vlft=Z0
+     vrgt=Z0
+     E=Z0
+     DE=1.d0
+     !
+     LWORK=IMULT*MAXIT
+     allocate(work (LWORK))
+     allocate(rwork(max(2*MAXIT,3*MAXIT-2)))
+     work=Z0
+     rwork=0.d0
+     !
+  endif
+
+
+  !.. Initialize the first krylov vector to Q1 = x/|x|
+  !.. 
+  zw1=Z1/Initial_Norm
+  call VecCopy(X,Q(1),ierr);CHKERRQ(ierr)
+  call VecScale(Q(1),zw1,ierr);CHKERRQ(ierr)
+
+
+
+  !.. Start the cycle
+  !..
+  CHECK_LIMIT=(ERRRES>0.d0)
+  CONVERGED_SPACE  =.false.
+  CONVERGED_RESULT =.false.
+  !
+  outer_cycle: do i=1,MAXIT
+     !
+     NITER=i
+     !
+     !.. y(n+1) = A Qn
+     !..
+     call MatMult(AMAT,Q(i),Q(MAXIT+1),ierr);CHKERRQ(ierr)
+     call VecScale(Q(MAXIT+1),fact,ierr);CHKERRQ(ierr)
+     !
+     !..  Q~(n+1)= y(n+1) - Sum_j Qj <Qj|y(n+1)>
+     !..
+     do j=1,i
+        !
+        call VecDot(Q(j),Q(MAXIT+1),zw1,ierr);CHKERRQ(ierr)
+        T(j,i)=zw1
+        zw1=-zw1
+        call VecAXPY(Q(MAXIT+1),zw1,Q(j),ierr);CHKERRQ(ierr)
+        !
+     end do
+     call VecNorm(Q(MAXIT+1),NORM_2,norm,ierr);CHKERRQ(ierr)
+     !
+     !.. If the krylov space is an invariant subspace of
+     !   A up to numerical precision, the action of the 
+     !   exponential exp(-i*A*fact) on the vector x can 
+     !   already be performed (numerically) exactely.
+     !..
+     if(norm.lt.MINNOR)then
+        !
+        CONVERGED_SPACE =.TRUE.
+        !
+        !.. If the space has converged, this is necessarily 
+        !   the case also for the result.
+        !..
+        CONVERGED_RESULT=.TRUE.
+        !
+     elseif(i<MAXIT)then
+        !
+        T(i+1,i)=Z1*norm
+        zw1=Z1/norm
+        call VecCopy(Q(MAXIT+1),Q(i+1),ierr);CHKERRQ(ierr)
+        call VecScale(Q(i+1),zw1,ierr);CHKERRQ(ierr)
+        !
+     end if
+
+
+     if(  CONVERGED_SPACE.or.           &
+          (CHECK_LIMIT.and.i>=MINIT).or.&
+          i==MAXIT) then
+        !
+        !
+        if(rank==0)then
+           !  
+           !.. Diagonalize the krylov matrix
+           !..
+           Try(1:i,1:i)=T(1:i,1:i)
+           call ZHEEV('V','U',i,Try,MAXIT,DE,work,lwork,rwork,ZGEEV_INFO)
+           E(1:i)=Z1*DE(1:i)
+           vlft(1:i,1:i)=Try(1:i,1:i)
+           vrgt(1:i,1:i)=Try(1:i,1:i)
+           !  
+           !.. y=exp(-iAt)x
+           !..
+           do j=1,i
+              !
+              if(VERBOUS)write(*,"(a,i2,a,2(x,f24.12))")"E(",j,")=",&
+                   dble(E(j)),aimag(E(j))
+              !
+              !zvec1(j)=exp(-Zi*fact*E(j))*conjg(vlft(1,j))
+              zvec1(j)=exp(-Zi*E(j))*conjg(vlft(1,j))
+              !
+           enddo
+           !  
+           zvec1=zvec1*Initial_Norm
+           !  
+           call ZGEMV('N',i,i,Z1,vrgt,MAXIT,zvec1,1,Z0,zvec2,1)
+           !  
+        endif 
+        !
+        !
+        !.. The result is scattered to all the processes.
+        !   The barrier I put here is most probably superfluous.
+        !..
+        call MPI_Barrier(PETSC_COMM_WORLD,ierr);CHKERRQ(ierr)
+        if(VERBOUS)then
+           write(*,"(a,i4,a)",advance="no")"A rank",rank," ||zvec_2||_1="
+           do j=1,i
+              write(*,"(x,d24.16)",advance="no")abs(zvec2(j))
+           enddo
+           write(*,*)
+        endif
+        call MPI_Bcast(zvec2,i,MPI_DOUBLE_COMPLEX,0,PETSC_COMM_WORLD,ierr)
+        CHKERRQ(ierr)
+        if(VERBOUS)then
+           write(*,"(a,i4,a)",advance="no")"B rank",rank," ||zvec_2||_1="
+           do j=1,i
+              write(*,"(x,d24.16)",advance="no")abs(zvec2(j))
+           enddo
+           write(*,*)
+        endif
+        !
+        zw1=Z0
+        call VecScale(res,zw1,ierr);CHKERRQ(ierr)
+        do j=1,i
+           !
+           zw1=zvec2(j)
+           call VecAXPY(res,zw1,Q(j),ierr);CHKERRQ(ierr)
+           !
+        enddo
+        
+
+        !.. If the Krylov space is already invariant
+        !   there is no need of proceeding further
+        !..
+        if(CONVERGED_SPACE)exit outer_cycle
+
+
+        !.. Looks how much the result vector has changed
+        !   with respect to the previous iteration |y-Q(MAXIT+2)|/|x|
+        !.. 
+        if(CHECK_LIMIT.and.i>1)then
+           !
+           call VecCopy(Q(MAXIT+2),Q(MAXIT+1),ierr);CHKERRQ(ierr)
+           zw1=-Z1
+           call VecAXPY(Q(MAXIT+1),zw1,res,ierr);CHKERRQ(ierr)
+           call VecNorm(Q(MAXIT+1),NORM_2,norm,ierr);CHKERRQ(ierr)
+           norm=norm/Initial_Norm
+           call VecCopy(res,Q(MAXIT+2),ierr);CHKERRQ(ierr)
+           if(norm.lt.ERRRES)then
+              !
+              CONVERGED_RESULT = .true.
+              exit outer_cycle
+              !
+           endif
+           !
+        endif
+
+     end if
+
+  end do outer_cycle
+
+  if( CHECK_LIMIT .and. .not.CONVERGED_RESULT ) INFO = 1
+
+  deallocate(T,zvec2)
+  if(rank==0)then
+     !
+     deallocate(WORK,RWORK)
+     deallocate(Try,vlft,vrgt,E,DE,zvec1)
+     !
+  endif
+
+
+  return
+
+end subroutine KRYLOV
