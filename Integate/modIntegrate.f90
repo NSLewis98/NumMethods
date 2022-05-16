@@ -1,3 +1,8 @@
+! Module containing numerical integration methods.
+! The LebdevIntegral integral routine is the most efficient 3D integration method.
+! It uses a Lebedev pt Quadrrature method for integration over \mathcal{S}^2 and 
+! trapezoiad rule for the radial integration
+
 module modIntegral
     implicit none
     interface
@@ -8,6 +13,9 @@ module modIntegral
         end function func
     end interface 
     public func
+
+    public  :: OneDimIntegral, ThreeDimIntegral, LebdevIntegral
+    private :: getLebPoints, weights
     contains
     
     ! Numericaly Integrate a 1D complex function, f,  using trapezoidal rule
